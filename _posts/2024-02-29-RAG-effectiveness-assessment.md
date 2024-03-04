@@ -3,7 +3,7 @@ layout: post
 title: RAG效果的评估
 date: 2024-02-29
 Author: towin
-tags: [RAG, RAG]
+tags: [RAG, LLM]
 comments: false
 ---
 如何定量评估 RAG 应用的质量。很显然，简单的几个例子的对比，并不能准确地衡量出 RAG 应用的整体的回答的好坏，必须采用一些有说服力的指标，定量地、可复现地、来评估一个 RAG 应用。目前，业内已经形成一些主流的方法论，并出现了一些用于评估 RAG 应用的专业工具或服务，可以用它们快速进行定量评估。
@@ -79,132 +79,133 @@ GPT-4，或者 LLM 本身做为一个裁判打分，它就不会有错吗？根�
 接下来是目前比较常见、好用的 RAG 评估工具的基本使用方法及其相应特点。
 ### ●Ragas
 https://docs.ragas.io/en/latest/concepts/metrics/context_recall.html是专注于评估 RAG 应用的工具，通过简单的接口即可实现评估：
-from ragas import evaluate
-from datasets import Dataset
+```
+    from ragas import evaluate
+    from datasets import Dataset
 
-# prepare your huggingface dataset in the format
-# Dataset({
-#     features: ['question', 'contexts', 'answer', 'ground_truths'],
-#     num_rows: 25
-# })
-
-
-dataset: Dataset
+    # prepare your huggingface dataset in the format
+    # Dataset({
+    #     features: ['question', 'contexts', 'answer', 'ground_truths'],
+    #     num_rows: 25
+    # })
 
 
-results = evaluate(dataset)
-# {'ragas_score': 0.860, 'context_precision': 0.817,
-# 'faithfulness': 0.892, 'answer_relevancy': 0.874}
+    dataset: Dataset
 
 
+    results = evaluate(dataset)
+    # {'ragas_score': 0.860, 'context_precision': 0.817,
+    # 'faithfulness': 0.892, 'answer_relevancy': 0.874}
+```
 只要把 RAG 过程中的question, contexts, answer, ground_truths，构建成一个 Dataset 实例，即可一键启动测评，非常方便。
 Ragas 指标种类丰富多样，对 RAG 应用的框架无要求，也可以通过 https://www.langchain.com/langsmith来监控每次评估的过程，帮助分析每次评估的原因和观察 API key 的消耗。
 
 ### ●Llama-Index
 https://docs.llamaindex.ai/en/stable/optimizing/evaluation/evaluation.html 很适合用来搭建 RAG 应用，且它的生态比较丰富，目前也处在快速迭代发展中。Llama-Index 也有一部分评估的功能，用户可以方便地对由 Llama-Index 本身搭建的 RAG 应用进行评估：
-from llama_index.evaluation import BatchEvalRunner
-from llama_index.evaluation import (
-    FaithfulnessEvaluator,
-    RelevancyEvaluator,
-)
-service_context_gpt4 = ...
-vector_index = ...
-question_list = ...
+```
+    from llama_index.evaluation import BatchEvalRunner
+    from llama_index.evaluation import (
+        FaithfulnessEvaluator,
+        RelevancyEvaluator,
+    )
+    service_context_gpt4 = ...
+    vector_index = ...
+    question_list = ...
 
 
-faithfulness_gpt4 = FaithfulnessEvaluator(service_context=service_context_gpt4)
-relevancy_gpt4 = RelevancyEvaluator(service_context=service_context_gpt4)
+    faithfulness_gpt4 = FaithfulnessEvaluator(service_context=service_context_gpt4)
+    relevancy_gpt4 = RelevancyEvaluator(service_context=service_context_gpt4)
 
 
-runner = BatchEvalRunner(
-    {"faithfulness": faithfulness_gpt4, "relevancy": relevancy_gpt4},
-    workers=8,
-)
+    runner = BatchEvalRunner(
+        {"faithfulness": faithfulness_gpt4, "relevancy": relevancy_gpt4},
+        workers=8,
+    )
 
 
-eval_results = runner.evaluate_queries(
-    vector_index.as_query_engine(), queries=question_list
-)
-
+    eval_results = runner.evaluate_queries(
+        vector_index.as_query_engine(), queries=question_list
+    )
+```
 
 
 可以看到，在runner.evaluate_queries()中，需要传入一个BaseQueryEngine实例，也就是说，它比较适合评估 Llama-Index 本身搭建的 RAG 应用。如果是其它架构搭建的 RAG 应用，可能需要在工程上做一些转换。
 ### ●TruLens-Eval
 https://www.trulens.org/trulens_eval/install/ 也是专门用于评估 RAG 指标的工具，它对 LangChain 和 Llama-Index 都有比较好的集成，可以方便地用于评估这两个框架搭建的 RAG 应用。我们以评估 LangChain 的 RAG 应用为例：
-
-from trulens_eval import TruChain, Feedback, Tru，Select
-from trulens_eval.feedback import Groundedness
-from trulens_eval.feedback.provider import OpenAI
-import numpy as np
-
-
-tru = Tru()
-rag_chain = ...
+```
+    from trulens_eval import TruChain, Feedback, Tru，Select
+    from trulens_eval.feedback import Groundedness
+    from trulens_eval.feedback.provider import OpenAI
+    import numpy as np
 
 
-# Initialize provider class
-openai = OpenAI()
+    tru = Tru()
+    rag_chain = ...
 
 
-grounded = Groundedness(groundedness_provider=OpenAI())
-# Define a groundedness feedback function
-f_groundedness = (
-    Feedback(grounded.groundedness_measure_with_cot_reasons)
-    .on(Select.RecordCalls.first.invoke.rets.context)
-    .on_output()
-    .aggregate(grounded.grounded_statements_aggregator)
-)
+    # Initialize provider class
+    openai = OpenAI()
 
 
-# Question/answer relevance between overall question and answer.
-f_qa_relevance = Feedback(openai.relevance).on_input_output()
+    grounded = Groundedness(groundedness_provider=OpenAI())
+    # Define a groundedness feedback function
+    f_groundedness = (
+        Feedback(grounded.groundedness_measure_with_cot_reasons)
+        .on(Select.RecordCalls.first.invoke.rets.context)
+        .on_output()
+        .aggregate(grounded.grounded_statements_aggregator)
+    )
 
 
-tru_recorder = TruChain(rag_chain,
-    app_id='Chain1_ChatApplication',
-    feedbacks=[f_qa_relevance, f_groundedness])
+    # Question/answer relevance between overall question and answer.
+    f_qa_relevance = Feedback(openai.relevance).on_input_output()
 
 
-tru.run_dashboard()
+    tru_recorder = TruChain(rag_chain,
+        app_id='Chain1_ChatApplication',
+        feedbacks=[f_qa_relevance, f_groundedness])
 
 
+    tru.run_dashboard()
+
+```
 
 当然，Trulens-Eval 也可以评估原生的 RAG 应用。在代码上会相对复杂一些，需要使用 instrument在 RAG 应用代码中注册。此外，Trulens-Eval 也可以在浏览器中启动页面进行可视化地监控，帮助分析每次评估的原因和观察 API key 的消耗。
 
 ### ●Phoenix
 https://docs.arize.com/phoenix/ 有许多评估 LLM 的功能，比如评估 Embedding 效果、评估 LLM 本身。在评估 RAG 这个能力上，也留出接口，和生态对接，但目前看指标种类还不是很多。下面是用 Phoenix 评估 Llama-Index 搭建的 RAG 应用例子：
-
-import phoenix as px
-from llama_index import set_global_handler
-from phoenix.experimental.evals import llm_classify, OpenAIModel, RAG_RELEVANCY_PROMPT_TEMPLATE, \
-    RAG_RELEVANCY_PROMPT_RAILS_MAP
-from phoenix.session.evaluation import get_retrieved_documents
-
-
-px.launch_app()
-set_global_handler("arize_phoenix")
-print("phoenix URL", px.active_session().url)
+```
+    import phoenix as px
+    from llama_index import set_global_handler
+    from phoenix.experimental.evals import llm_classify, OpenAIModel, RAG_RELEVANCY_PROMPT_TEMPLATE, \
+        RAG_RELEVANCY_PROMPT_RAILS_MAP
+    from phoenix.session.evaluation import get_retrieved_documents
 
 
-query_engine = ...
-question_list = ...
+    px.launch_app()
+    set_global_handler("arize_phoenix")
+    print("phoenix URL", px.active_session().url)
 
 
-for question in question_list:
-    response_vector = query_engine.query(question)
+    query_engine = ...
+    question_list = ...
 
 
-retrieved_documents = get_retrieved_documents(px.active_session())
+    for question in question_list:
+        response_vector = query_engine.query(question)
 
 
-retrieved_documents_relevance = llm_classify(
-    dataframe=retrieved_documents,
-    model=OpenAIModel(model_name="gpt-4-1106-preview"),
-    template=RAG_RELEVANCY_PROMPT_TEMPLATE,
-    rails=list(RAG_RELEVANCY_PROMPT_RAILS_MAP.values()),
-    provide_explanation=True,
-)
+    retrieved_documents = get_retrieved_documents(px.active_session())
 
+
+    retrieved_documents_relevance = llm_classify(
+        dataframe=retrieved_documents,
+        model=OpenAIModel(model_name="gpt-4-1106-preview"),
+        template=RAG_RELEVANCY_PROMPT_TEMPLATE,
+        rails=list(RAG_RELEVANCY_PROMPT_RAILS_MAP.values()),
+        provide_explanation=True,
+    )
+```
 
 当px.launch_app()启动后，在本地可以打开一个网页，可以观察 RAG 应用链路中的每一步的过程。最近评估的结果还是放在retrieved_documents_relevance这里面。
 
